@@ -1,6 +1,7 @@
 import json
 from machine import Pin, PWM, Timer, reset
 import network
+from phew import server, connect_to_wifi
 import re
 import rp2
 import socket
@@ -42,30 +43,33 @@ servo.freq(50)
 timer = 0
 timer_fraction = .25
 wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(ssid, wifi_password)
 
-wlan_timeout = 10
-while wlan_timeout > 0:
-    print(f"wlan status: {wlan.status()} Waiting for connection... ({wlan_timeout})")
-    if wlan.status() < 0 or wlan.status() >= 3:
-        break
-    timeout -= 1
-    sleep(1)
+connect_to_wifi(ssid, wifi_password)
 
-if wlan_timeout == 0:
-    reset()
+# wlan.active(True)
+# wlan.connect(ssid, wifi_password)
+
+# wlan_timeout = 10
+# while wlan_timeout > 0:
+#     print(f"wlan status: {wlan.status()} Waiting for connection... ({wlan_timeout})")
+#     if wlan.status() < 0 or wlan.status() >= 3:
+#         break
+#     timeout -= 1
+#     sleep(1)
+#
+# if wlan_timeout == 0:
+#     reset()
 
 network_info = wlan.ifconfig()
 local_ip_address = network_info[0]
-addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
-s = socket.socket()
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(addr)
-s.listen(50)
+# addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
+# s = socket.socket()
+# s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# s.bind(addr)
+# s.listen(50)
 print("Listening on {}.".format(local_ip_address))
-mac = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
-print('mac = ' + mac)
+# mac = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
+# print('mac = ' + mac)
 
 door_is_locked = False
 
@@ -80,7 +84,7 @@ def door_is_closed():
 
 def move_lock(position):
     servo.duty_u16(position)
-    sleep(1)
+    sleep(.5)
 
 
 def update_timeout(new_timeout):
@@ -161,7 +165,7 @@ def get_html(open_state, locked_state):
             <br />
             <br />
             <br />
-            <p style="color:#ccc">Current timeout is {get_timeout()/1000/60} minutes. Set new timeout with `{local_ip_address}/timeout/[new value]`.</p> 
+            <p style="color:#ccc">Current timeout is {get_timeout() / 1000 / 60} minutes. Set new timeout with `{local_ip_address}/timeout/[new value]`.</p> 
         </body>
     </html>
     """
@@ -174,50 +178,79 @@ unlock_button.irq(trigger=Pin.IRQ_RISING, handler=unlock_door)
 door_sensor.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=set_lock_timer)
 
 
-def server(s):
-    client, address = s.accept()
-    print("connected from {}.".format(address))
-    req = client.recv(1024)
-    req = str(req)
-    print("req")
-    print(req)
-    request = None
-    try:
-        request = req.split()
-    except IndexError:
-        pass
+@server.route("/lock", methods=["GET"])
+def serve_lock(request):
+    lock_door(None)
+    return get_html(door_is_open(), door_is_locked)
 
-    print(req)
 
-    if request is not None:
-        u = get_url_with_params(request[1])
-        print(f"U: {u}")
-        if len(u) > 0:
-            uri = u[0]
-            if uri == 'lock':
-                lock_door(None)
-            elif uri == 'unlock':
-                unlock_door(None)
-            elif uri == 'timeout':
-                update_timeout(float(u[1]))
+@server.route("/unlock", methods=["GET"])
+def serve_unlock(request):
+    unlock_door(None)
+    return get_html(door_is_open(), door_is_locked)
 
-    door_open = "open"
-    if door_is_closed():
-        door_open = "closed"
 
-    door_locked = "unlocked"
-    if door_is_locked:
-        door_locked = "locked"
+@server.route("/timeout/<t>", methods=["GET"])
+def serve_unlock(request):
+    print(request)
+    return get_html(door_is_open(), door_is_locked)
 
-    response = get_html(door_open, door_locked)
 
-    client.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
-    client.send(response)
-    client.close()
+@server.catchall()
+def catchall(request):
+    return get_html(door_is_open(), door_is_locked)
+
+
+server.run()
+
+# def server(s):
+#     client, address = s.accept()
+#     print("connected from {}.".format(address))
+#     req = client.recv(1024)
+#     req = str(req)
+#     print("req")
+#     print(req)
+#     request = None
+#     try:
+#         request = req.split()
+#     except IndexError:
+#         pass
+#
+#     print(req)
+#
+#     if request is not None:
+#         u = get_url_with_params(request[1])
+#         print(f"U: {u}")
+#         if len(u) > 0:
+#             uri = u[0]
+#             if uri == 'lock':
+#                 lock_door(None)
+#             elif uri == 'unlock':
+#                 unlock_door(None)
+#             elif uri == 'timeout':
+#                 update_timeout(float(u[1]))
+#
+#     door_open = "open"
+#     if door_is_closed():
+#         door_open = "closed"
+#
+#     door_locked = "unlocked"
+#     if door_is_locked:
+#         door_locked = "locked"
+#
+#     response = get_html(door_open, door_locked)
+#
+#     client.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+#     client.send(response)
+#     client.close()
+
+
+# while True:
+#     try:
+#         server(s)
+#     except BaseException:
+#         reset()
 
 
 while True:
-    try:
-        server(s)
-    except BaseException:
-        reset()
+    sleep(.01)
