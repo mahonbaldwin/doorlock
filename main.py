@@ -1,11 +1,13 @@
 import json
-from machine import Pin, PWM, Timer, reset
+from machine import Pin, PWM, Timer, reset, I2C
 import network
 import re
 import rp2
 import socket
 from time import sleep
 import ubinascii
+from lcd_api import LcdApi
+from i2c_lcd import I2cLcd
 
 rp2.country('US')
 
@@ -33,28 +35,57 @@ door_sensor_pin = 18
 servo_pin = 1
 unlock_button_pin = 15
 lock_button_pin = 14
+lcd_sda_pin = 10
+lcd_scl_pin = 11
 
 door_sensor = Pin(door_sensor_pin, Pin.IN, Pin.PULL_UP)
 unlock_button = Pin(unlock_button_pin, Pin.IN, Pin.PULL_DOWN)
 lock_button = Pin(lock_button_pin, Pin.IN, Pin.PULL_DOWN)
 servo = PWM(Pin(servo_pin))
 servo.freq(50)
-timer = 0
-timer_fraction = .25
+
+# Display
+i2c=I2C(1, sda=Pin(lcd_sda_pin), scl=Pin(lcd_scl_pin), freq=400000)
+devices = i2c.scan()
+
+if len(devices) == 0:
+    print("No i2c device!")
+else:
+    print('i2c devices found:',len(devices))
+    
+I2C_ADDR = 0x27
+print("Hex address: ", I2C_ADDR)
+
+I2C_NUM_ROWS = 2
+I2C_NUM_COLS = 16
+
+lcd = I2cLcd(i2c, I2C_ADDR, I2C_NUM_ROWS, I2C_NUM_COLS)
+
+def message(s1):
+    lcd.clear()
+    lcd.putstr(s1)
+
+
+ 
+# Networking
 wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(ssid, wifi_password)
 
-wlan_timeout = 10
-while wlan_timeout > 0:
-    print(f"wlan status: {wlan.status()} Waiting for connection... ({wlan_timeout})")
-    if wlan.status() < 0 or wlan.status() >= 3:
-        break
-    timeout -= 1
-    sleep(1)
 
-if wlan_timeout == 0:
-    reset()
+def connect():
+    print(f"connecting to '{ssid}'")
+    tries = 0
+    while not wlan.isconnected():
+        wlan.active(True)
+        wlan.connect(ssid, wifi_password)
+        for i in range(5):
+            message(f"WiFi connecting {tries}...")
+            tries = tries + 1
+            if not wlan.isconnected():
+                sleep(1)
+            else:
+                break
+
+connect()
 
 network_info = wlan.ifconfig()
 local_ip_address = network_info[0]
@@ -67,7 +98,18 @@ print("Listening on {}.".format(local_ip_address))
 mac = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
 print('mac = ' + mac)
 
+message(f"WiFi connected!"+'\n'+f"{local_ip_address}")
+
 door_is_locked = False
+
+def displayStatus(lock):
+    if lock:
+        lock_message = "locked"
+    else:
+        lock_message = "unlocked"
+    message(f"IP:{local_ip_address} lock:{lock_message}")
+    # todo set a timer to turn this off after 60 seconds
+    # todo add4 a button that will toggle the state of this message
 
 
 def door_is_open():
@@ -120,6 +162,7 @@ def lock_door(_):
         print("door is closed, locking door")
         move_lock(locked_servo_position)
         door_is_locked = True
+        displayStatus(door_is_locked)
 
 
 print(f'TIMEOUT = {timeout}')
@@ -133,6 +176,7 @@ def unlock_door(_):
     initialize_lock_timer()
     move_lock(unlocked_servo_position)
     door_is_locked = False
+    displayStatus(door_is_locked)
 
 
 def get_url_with_params(url):
@@ -149,19 +193,20 @@ def get_html(open_state, locked_state):
     <html>
         <head> <title>Mapel Cottage Door Lock</title> </head>
         <body> <h1>Sliding Door</h1>
-            <p>The door is {open_state} and {locked_state}. <a href="/status">update status</a></p>
-
             <form action="/unlock">
                 <input type="submit" value="Unlock" />
             </form> <br />
             <form action="/lock">
                 <input type="submit" value="Lock" />
             </form>
+            
+            <h3>Status</h3>
+            <p>The door is {open_state} and {locked_state}. <a href="/status">update status</a></p>
 
             <br />
             <br />
             <br />
-            <p style="color:#ccc">Current timeout is {get_timeout()/1000/60} minutes. Set new timeout with `{local_ip_address}/timeout/[new value]`.</p> 
+            <p style="color:#ccc">Current timeout is {get_timeout()/1000/60} minutes. Set new timeout with `{local_ip_address}/timeout/[new value in minutes]`.</p> 
         </body>
     </html>
     """
