@@ -25,14 +25,17 @@ def get_timeout():
 
 data = get_settings()
 # servo positions min 1250 max 8550
-unlocked_servo_position = data["unlocked_position"]
-locked_servo_position = data["locked_position"]
+unlocked_servo_position_r = data["unlocked_position_r"]
+locked_servo_position_r = data["locked_position_r"]
+unlocked_servo_position_l = data["unlocked_position_l"]
+locked_servo_position_l = data["locked_position_l"]
 timeout = data["timeout"]
 ssid = data["SSID"]
 wifi_password = data["wifi_password"]
 
 door_sensor_pin = 18
-servo_pin = 1
+servo_r_pin = 1
+servo_l_pin = 2
 unlock_button_pin = 15
 lock_button_pin = 14
 lcd_sda_pin = 10
@@ -41,8 +44,10 @@ lcd_scl_pin = 11
 door_sensor = Pin(door_sensor_pin, Pin.IN, Pin.PULL_UP)
 unlock_button = Pin(unlock_button_pin, Pin.IN, Pin.PULL_DOWN)
 lock_button = Pin(lock_button_pin, Pin.IN, Pin.PULL_DOWN)
-servo = PWM(Pin(servo_pin))
-servo.freq(50)
+servo_l = PWM(Pin(servo_l_pin))
+servo_l.freq(50)
+servo_r = PWM(Pin(servo_r_pin))
+servo_r.freq(50)
 
 # Display
 i2c=I2C(1, sda=Pin(lcd_sda_pin), scl=Pin(lcd_scl_pin), freq=400000)
@@ -66,7 +71,6 @@ def message(s1):
     lcd.putstr(s1)
 
 
- 
 # Networking
 wlan = network.WLAN(network.STA_IF)
 
@@ -120,8 +124,10 @@ def door_is_closed():
     return not door_is_open()
 
 
-def move_lock(position):
-    servo.duty_u16(position)
+def move_lock(position_l, position_r):
+    print(f"L: {position_l}, R: {position_r}")
+    servo_l.duty_u16(position_l)
+    servo_r.duty_u16(position_r)
     sleep(1)
 
 
@@ -160,12 +166,10 @@ def lock_door(_):
     global door_is_locked
     if door_is_closed():
         print("door is closed, locking door")
-        move_lock(locked_servo_position)
+        move_lock(locked_servo_position_l, locked_servo_position_r)
         door_is_locked = True
         displayStatus(door_is_locked)
 
-
-print(f'TIMEOUT = {timeout}')
 
 LockTimer = Timer(period=get_timeout(), mode=Timer.ONE_SHOT, callback=lock_door)
 
@@ -174,7 +178,7 @@ def unlock_door(_):
     global door_is_locked
     print("unlocking door")
     initialize_lock_timer()
-    move_lock(unlocked_servo_position)
+    move_lock(unlocked_servo_position_l, unlocked_servo_position_r)
     door_is_locked = False
     displayStatus(door_is_locked)
 

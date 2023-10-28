@@ -1,5 +1,7 @@
 {"timeout": 300,
  "SSID":  "[YOUR SSID HERE]",
  "wifi_password": "[YOUR WIFI PASSWORD HERE]",
- "locked_position": 4900,
- "unlocked_position": 7150}
+ "locked_position_l": 4900,
+ "locked_position_r": 4900,
+ "unlocked_position_l": 2650,
+ "unlocked_position_r": 7150}
